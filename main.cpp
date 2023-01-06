@@ -37,9 +37,12 @@ private:
         };
 
     // Other private member vars go here
-    float fTimeSinceStart = 0.0f;
+    float fTimeSinceStart = 0.0f;   // fTimeSinceStart: Used to draw lane info to screen.
     int nCellSize = 8;              // nCellSize: Size of each game "cell" (each elem in vecLanes constitutes a cell). Chose 8 b/c window is in multiples of 8
-    int nLaneWidth = 18;
+    int nLaneWidth = 18;            // nLaneWidth: The amount of the lane we want the screen to see at one time
+
+    float fFrogX = 8.0f;
+    float fFrogY = 9.0f;
 
     bool *bufDanger = nullptr;
 
@@ -58,7 +61,7 @@ protected:
     // ON USER CREATE
     virtual bool OnUserCreate() {
 
-        bufDanger = new bool[ScreenWidth() * ScreenHeight()];
+        bufDanger = new bool[ScreenWidth() * ScreenHeight()];  //bufDanger: Array of bools, same dimensions as screen
         memset(bufDanger, 0, ScreenWidth() * ScreenHeight() * sizeof(bool));
 
         // Load sprites
@@ -80,19 +83,39 @@ protected:
         fTimeSinceStart += fElapsedTime;
 
         // Handle input
+        if (GetKey(olc::Key::UP).bReleased)   fFrogY -= 1.0f;
+        if (GetKey(olc::Key::DOWN).bReleased)   fFrogY += 1.0f;
+        if (GetKey(olc::Key::LEFT).bReleased)   fFrogX -= 1.0f;
+        if (GetKey(olc::Key::RIGHT).bReleased)  fFrogX += 1.0f;
 
-        // Frog is moved by platforms
+        // Frog is moved by platforms; velocity of lane that frog is on times elapsed time
+        if (fFrogY <= 3)    fFrogX -= fElapsedTime * vecLanes[(int)fFrogY].first;
 
         // Collision detection
+        bool tl = bufDanger[(int)(fFrogY*nCellSize + 1) * ScreenWidth() + (int)(fFrogX*nCellSize + 1)];
+		bool tr = bufDanger[(int)(fFrogY*nCellSize + 1) * ScreenWidth() + (int)((fFrogX+1)*nCellSize - 1)];
+		bool bl = bufDanger[(int)((fFrogY+1)*nCellSize - 1) * ScreenWidth() + (int)(fFrogX*nCellSize + 1)];
+		bool br = bufDanger[(int)((fFrogY+1)*nCellSize - 1) * ScreenWidth() + (int)((fFrogX+1)*nCellSize - 1)];
+
+		if (tl || tr || bl || br) {
+			// Frogs been hit :-(
+			fFrogX = 8.0f;
+			fFrogY = 9.0f;
+		}
+
 
         // Draw lanes
-        int x = -1, y = 0;
-        for (auto lane: vecLanes) {
+        //Clear(olc::BLACK);
+
+        int x = -1, y = 0;  // X is offset by -1 for more smoother animation into screen 
+        for (auto lane: vecLanes) { // Iterates through each lane
 
             // Find lane offset start
-            int nStartPos = (int)(fTimeSinceStart * lane.first) % 64; // Starting point of the game
-            int nCellOffset = (int)((float)nCellSize* fTimeSinceStart * lane.first) % nCellSize;
-            if (nStartPos < 0) nStartPos = 64 - (abs(nStartPos) % 64);
+            // nStartPos: Used in determining which graphic to use. Time since start * lane velocity = graphic to be displayed at that time
+            // nCellOffset: Scales and modulates the nStartPos equation so that the animation is less "blocky". When drawing graphics, offset is only applied in x direction since nothing is moving in y
+            int nStartPos = (int)(fTimeSinceStart * lane.first) % 64;
+            int nCellOffset = (int)((float)nCellSize * fTimeSinceStart * lane.first) % nCellSize;
+            if (nStartPos < 0) nStartPos = 64 - (abs(nStartPos) % 64);  // This is used to prevent out of index error since nStartPos could be negative.
 
             for (int i = 0; i < nLaneWidth; i++) {
                 
@@ -102,6 +125,8 @@ protected:
                 //Fill((x + i) * nCellSize - nCellOffset, y * nCellSize, (x + i + 1)*nCellSize - nCellOffset, (y + 1) * nCellSize, graphic);
                 
                 switch (graphic) { // Graphics always make code verbose and less clear
+
+                // DrawPartialSprite only draws a partial amount of the sprite. Hence, long sprites require multiple DrawPartialSprite calls -- e.g., bus takes up 24 cell units (each unit is 8 size)
                     case 'a':	DrawPartialSprite((x + i)*nCellSize - nCellOffset, y*nCellSize, spriteBus, 0, 0, 8, 8);		break; // Bus 1
                     case 's':	DrawPartialSprite((x + i)*nCellSize - nCellOffset, y*nCellSize, spriteBus, 8, 0, 8, 8);		break; // Bus 2
                     case 'd':	DrawPartialSprite((x + i)*nCellSize - nCellOffset, y*nCellSize, spriteBus, 16, 0, 8, 8);	break; // Bus 3
@@ -124,21 +149,27 @@ protected:
                     case '.': 	FillRect((x + i)*nCellSize - nCellOffset, y*nCellSize, nCellSize, nCellSize, olc::BLACK);	break; // Road
                 }
 
-				// Fill Danger buffer
-				for (int j = (x + i)*nCellSize - nCellOffset; j < (x + i + 1)*nCellSize - nCellOffset; j++)
+				//Fill Danger buffer
+				for (int j = (x + i)*nCellSize - nCellOffset; j < (x + i + 1)*nCellSize - nCellOffset; j++) // Iterates through each cell in the screen
 					for (int k = y*nCellSize; k < (y + 1)*nCellSize; k++)
 						if (j >= 0 && j < ScreenWidth() && k >= 0 && k < ScreenHeight())
+                            // If j and k are within the bounds of the screen, we need to determine if the cell is dangerous or not
 							bufDanger[k*ScreenWidth() + j] =
-								!(graphic == '.' ||
-								graphic == 'j' || graphic == 'k' || graphic == 'l' ||
-								graphic == 'p' ||
-								graphic == 'h');
+								!(graphic == '.' ||                                     // Road
+								graphic == 'j' || graphic == 'k' || graphic == 'l' ||   // Log
+								graphic == 'p' ||                                       // Pavement
+								graphic == 'h');                                        // Spawn point
             }
             y++;
        
         }
 
-    return true;
+        // Draw Frog -- in mask mode
+        SetPixelMode (olc::Pixel::MASK);
+        DrawSprite(fFrogX*nCellSize, fFrogY*nCellSize, spriteFrog);
+        SetPixelMode(olc::Pixel::NORMAL);
+
+        return true;
 
     }
 };
